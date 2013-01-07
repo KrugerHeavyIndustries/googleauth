@@ -409,14 +409,19 @@ int main(int argc, char *argv[]) {
   static const char allow[]     = "ALLOW_REUSE ";
   static const char window[]    = "WINDOW_SIZE 17 ";
   static const char ratelimit[] = "RATE_LIMIT 3 30 ";
-  char secret[(SECRET_BITS + BITS_PER_BASE32_CHAR-1)/BITS_PER_BASE32_CHAR +
-              1 /* newline */ +
-              sizeof(hotp) +  // hotp and totp are mutually exclusive.
-              sizeof(disallow) +
-              sizeof(window) +
-              sizeof(ratelimit) + 5 + // NN MMM (total of five digits)
-              SCRATCHCODE_LENGTH*(SCRATCHCODES + 1 /* newline */) +
-              1 /* NUL termination character */];
+
+  const uint32_t secretMaxLength = 
+		(SECRET_BITS + BITS_PER_BASE32_CHAR-1)/BITS_PER_BASE32_CHAR + 
+		1 +  /* newline */
+		sizeof(hotp) +  /* hotp and totp are mutually excl. */
+		sizeof(disallow) + 
+		sizeof(window) +
+		sizeof(ratelimit) +
+		5 + 
+		SCRATCHCODE_LENGTH * (SCRATCHCODES + 1 /* newline */) + 
+		1 /* NUL termination character */;
+
+  char secret[secretMaxLength];
 
   enum { ASK_MODE, HOTP_MODE, TOTP_MODE } mode = ASK_MODE;
   enum { ASK_REUSE, DISALLOW_REUSE, ALLOW_REUSE } reuse = ASK_REUSE;
@@ -756,9 +761,9 @@ int main(int argc, char *argv[]) {
 
   // prepare to write config file
   if (use_totp) {
-    strcat(secret, totp);
+    strlcat(secret, totp, secretMaxLength);
   } else {
-    strcat(secret, hotp);
+    strlcat(secret, hotp, secretMaxLength);
   }
 
   // Query options
