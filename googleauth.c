@@ -383,7 +383,7 @@ static int openSecretDbFile(const char* user, const char* pf) {
 
 static void usage(void) {
   puts(
- "google-authenticator [<options>] user\n"
+ "googleauth [<options>] user\n"
  " -h, --help               Print this message\n"
  " -c, --counter-based      Set up counter-based (HOTP) verification\n"
  " -t, --time-based         Set up time-based (TOTP) verification\n"
