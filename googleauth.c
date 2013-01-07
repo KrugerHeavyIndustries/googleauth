@@ -124,7 +124,7 @@ static int userExists(const char* user) {
   #endif
 
   buf = malloc(len);
-  if (getpwnam_r(user, &pwbuf, buf, len, pw) || !pw) {
+  if (getpwnam_r(user, &pwbuf, buf, len, &pw) || !pw) {
      free(buf);
      return 0;
   }
