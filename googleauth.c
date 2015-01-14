@@ -623,8 +623,15 @@ int main(int argc, char *argv[]) {
       char *endptr;
       errno = 0;
       long l = strtol(optarg, &endptr, 10);
-      if (errno || endptr == optarg || *endptr || l < 1 || l > 21) {
-        fprintf(stderr, "-w requires an argument in the range 1..21\n");
+	  //Originally the limit for window width was 21. For counter based
+	  //tokens this isn't a wide enough window given a widely distributed
+	  //infrastructure. Consider if you spend a month working in one 
+	  //branch of the inf, iterating your tokens counter, and then attempt
+	  //to log into a rarely-visited server. You would be locked out.
+	  //It's debatable whether 100 is actually wide //enough//, but 
+	  //it seems a fair place to start. 
+      if (errno || endptr == optarg || *endptr || l < 1 || l > 100) {
+        fprintf(stderr, "-w requires an argument in the range 1..100\n");
         _exit(1);
       }
       window_size = (int)l;
