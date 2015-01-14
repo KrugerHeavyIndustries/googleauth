@@ -234,9 +234,17 @@ static void displayQRCode(const char *secret, const char *label,
   // user can still type the code in manually, or he can copy the URL into
   // his browser.
   if (isatty(1)) {
-    void *qrencode = dlopen("libqrencode.so.2", RTLD_NOW | RTLD_LOCAL);
+	//In OpenBSD, the libqrencode package delivers the file /usr/local/lib/libqrencode.so.0.0
+	// rather than libqrencode.so.2 or so.3
+	//We will try to load the so.0.0 file first, and if we dont find it, try 
+	// the other two. 
+    void *qrencode = dlopen("libqrencode.so.0.0", RTLD_NOW | RTLD_LOCAL);
+	//If we dont have the libqrencode.so.0.0, try some other alternatives
     if (!qrencode) {
-      qrencode = dlopen("libqrencode.so.3", RTLD_NOW | RTLD_LOCAL);
+      qrencode = dlopen("libqrencode.so.2", RTLD_NOW | RTLD_LOCAL);
+		if (!qrencode) {
+			qrencode = dlopen("libqrencode.so.3", RTLD_NOW | RTLD_LOCAL);
+		}
     }
     if (qrencode) {
       typedef struct {
