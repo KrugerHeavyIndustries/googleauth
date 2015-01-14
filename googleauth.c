@@ -802,6 +802,7 @@ int main(int argc, char *argv[]) {
       addConfig(secret, sizeof(secret), buf);
     }
   } else {
+    addConfig(secret, sizeof(secret), disallow);
     if (!window_size) {
       if (maybe("By default, three tokens are valid at any one time.  "
                 "This accounts for\ngenerated-but-not-used tokens and "
