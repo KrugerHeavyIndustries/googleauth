@@ -48,6 +48,7 @@
 #define SCRATCHPF                 ".scratch"
 #define SECRETPF                  ".secret"
 #define COUNTERPF                 ".counter"
+#define QRPF                      ".png"
 
 #define SECRET                    "/.google_authenticator"
 #define SECRET_BITS               80     // Must be divisible by eight
@@ -60,6 +61,17 @@
 #define CONF_FIELD_LENGTH        80
 
 static enum { QR_UNSET=0, QR_NONE, QR_ANSI, QR_UTF8 } qr_mode = QR_UNSET;
+
+//Required items for QR Code generation
+#include <png.h>
+#include <qrencode.h>
+#define INCHES_PER_METER (100.0/2.54)
+static int size = 10;
+static int margin = 2;
+static int dpi = 72;
+static unsigned int fg_color[4] = {0, 0, 0, 255};
+static unsigned int bg_color[4] = {255, 255, 255, 255};
+
 
 static int generateCode(const char *key, unsigned long tm) {
   uint8_t challenge[8];
@@ -187,6 +199,7 @@ static const char *urlEncode(const char *s) {
 static const char *getURL(const char *secret, const char *label,
                           char **encoderURL, const int use_totp) {
   const char *encodedLabel = urlEncode(label);
+
   size_t max_len = strlen(encodedLabel) + strlen(secret) + 80;
   char *url = malloc(max_len);
   char totp = 'h';
@@ -212,6 +225,205 @@ static const char *getURL(const char *secret, const char *label,
   return url;
 }
 
+static int openSecretDbFile(const char* user, const char* pf) {
+
+   int secret_db_fd;
+   int len_fn = strlen(DBPATH) + strlen(user) + strlen(pf) + 2;
+   char* secret_db_fn = malloc(len_fn);
+
+   snprintf(secret_db_fn, len_fn, "%s/%s%s", DBPATH, user, pf);
+
+   secret_db_fd = open(secret_db_fn, 
+         O_WRONLY|O_EXCL|O_CREAT|O_NOFOLLOW|O_TRUNC, 0440); 
+            
+   if (secret_db_fd < 0) {
+       fprintf(stderr, "Failed to create \"%s\" (%s)\n",
+                secret_db_fn, strerror(errno));
+   }
+   free(secret_db_fn);
+     
+   return secret_db_fd < 0 ? 0 : secret_db_fd;
+}
+
+// writePNG requires a char* for the output file it will write
+// pngs to. Since openSecretDbFile returns file descriptors
+// this function was forked to provide the same file naming
+// syntax but return a char* instead of an int.
+static char* openSecretDbFilePath(const char* user, const char* pf) {
+
+   int len_fn = strlen(DBPATH) + strlen(user) + strlen(pf) + 2;
+   char* secret_db_fn = malloc(len_fn);
+
+   snprintf(secret_db_fn, len_fn, "%s/%s%s", DBPATH, user, pf);
+   return secret_db_fn;
+}
+
+// writePNG is forklifted and modified from the libqrencode project source code. 
+// Specifically: 
+// http://fukuchi.org/works/qrencode/index.html.en
+// qrencode-3.4.4 (sha1sum: 644054a76c8b593acb66a8c8b7dcf1b987c3d0b2  qrencode-3.4.4.tar.gz)
+// qrenc.c:256
+//
+// Licensing of this function follows:
+// LICENSING INFORMATION
+//
+// Copyright (C) 2006-2012 Kentaro Fukuchi
+//
+// This library is free software; you can redistribute it and/or modify it under the terms
+//  of the GNU Lesser General Public License as published by the Free Software Foundation; 
+//  either version 2.1 of the License, or any later version.
+//
+// This library is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+// without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+// See the GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License along with this
+//  library; if not, write to the Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
+//  Boston, MA 02110-1301 USA
+// CONTACTS
+//
+// Visit this page (http://fukuchi.org/works/qrencode/index.html) for new releases.
+//
+// Please mail any bug reports, suggestions, comments or questions to 
+// Kentaro Fukuchi (kentaro@fukuchi.org)
+// Questions of license compliance are also welcome.
+static int writePNG(QRcode *qrcode, const char *outfile)
+{
+	static FILE *fp; // avoid clobbering by setjmp.
+	png_structp png_ptr;
+	png_infop info_ptr;
+	png_colorp palette;
+	png_byte alpha_values[2];
+	unsigned char *row, *p, *q;
+	int x, y, xx, yy, bit;
+	int realwidth;
+
+	realwidth = (qrcode->width + margin * 2) * size;
+	row = (unsigned char *)malloc((realwidth + 7) / 8);
+	if(row == NULL) {
+		fprintf(stderr, "Failed to allocate memory.\n");
+		return 1;
+	}
+
+	if(outfile[0] == '-' && outfile[1] == '\0') {
+		fp = stdout;
+	} else {
+		fp = fopen(outfile, "wb");
+		if(fp == NULL) {
+			fprintf(stderr, "Failed to create file: %s\n", outfile);
+			perror(NULL);
+			return 1;
+		}
+	}
+
+	png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+	if(png_ptr == NULL) {
+		fprintf(stderr, "Failed to initialize PNG writer.\n");
+		return 1;
+	}
+
+	info_ptr = png_create_info_struct(png_ptr);
+	if(info_ptr == NULL) {
+		fprintf(stderr, "Failed to initialize PNG write.\n");
+		return 1;
+	}
+
+	if(setjmp(png_jmpbuf(png_ptr))) {
+		png_destroy_write_struct(&png_ptr, &info_ptr);
+		fprintf(stderr, "Failed to write PNG image.\n");
+		return 1;
+	}
+
+	palette = (png_colorp) malloc(sizeof(png_color) * 2);
+	if(palette == NULL) {
+		fprintf(stderr, "Failed to allocate memory.\n");
+		return 1;
+	}
+	palette[0].red   = fg_color[0];
+	palette[0].green = fg_color[1];
+	palette[0].blue  = fg_color[2];
+	palette[1].red   = bg_color[0];
+	palette[1].green = bg_color[1];
+	palette[1].blue  = bg_color[2];
+	alpha_values[0] = fg_color[3];
+	alpha_values[1] = bg_color[3];
+	png_set_PLTE(png_ptr, info_ptr, palette, 2);
+	png_set_tRNS(png_ptr, info_ptr, alpha_values, 2, NULL);
+
+	png_init_io(png_ptr, fp);
+	png_set_IHDR(png_ptr, info_ptr,
+			realwidth, realwidth,
+			1,
+			PNG_COLOR_TYPE_PALETTE,
+			PNG_INTERLACE_NONE,
+			PNG_COMPRESSION_TYPE_DEFAULT,
+			PNG_FILTER_TYPE_DEFAULT);
+	png_set_pHYs(png_ptr, info_ptr,
+			dpi * INCHES_PER_METER,
+			dpi * INCHES_PER_METER,
+			PNG_RESOLUTION_METER);
+	png_write_info(png_ptr, info_ptr);
+
+	/* top margin */
+	memset(row, 0xff, (realwidth + 7) / 8);
+	for(y=0; y<margin * size; y++) {
+		png_write_row(png_ptr, row);
+	}
+
+	/* data */
+	p = qrcode->data;
+	for(y=0; y<qrcode->width; y++) {
+		bit = 7;
+		memset(row, 0xff, (realwidth + 7) / 8);
+		q = row;
+		q += margin * size / 8;
+		bit = 7 - (margin * size % 8);
+		for(x=0; x<qrcode->width; x++) {
+			for(xx=0; xx<size; xx++) {
+				*q ^= (*p & 1) << bit;
+				bit--;
+				if(bit < 0) {
+					q++;
+					bit = 7;
+				}
+			}
+			p++;
+		}
+		for(yy=0; yy<size; yy++) {
+			png_write_row(png_ptr, row);
+		}
+	}
+	/* bottom margin */
+	memset(row, 0xff, (realwidth + 7) / 8);
+	for(y=0; y<margin * size; y++) {
+		png_write_row(png_ptr, row);
+	}
+
+	png_write_end(png_ptr, info_ptr);
+	png_destroy_write_struct(&png_ptr, &info_ptr);
+
+	fclose(fp);
+	free(row);
+	free(palette);
+	//Right! so fopen creates files with permissions according
+	//to umask, and in the case of sudo execution that creates
+	//the QR png file with mode 0444. That's not acceptable. 
+	//Now that the file is closed we will modify the mode to
+	//0440 using chmod(2) to do so. 
+	//Sample code modified from here:
+	//https://stackoverflow.com/questions/4568681/using-chmod-in-a-c-program
+	char fpMODE[] = "0440";
+	int fpmodeLONG;
+    fpmodeLONG = strtol(fpMODE, 0, 8);
+	if (chmod (outfile,fpmodeLONG) < 0)
+	{
+		fprintf(stderr, "Errorr in chmod(%s, %s) - %d (%s)\n",
+		outfile, fpMODE, errno, strerror(errno));
+		return 1;
+	}
+	return 0;
+}
+
 #define ANSI_RESET        "\x1B[0m"
 #define ANSI_BLACKONGREY  "\x1B[30;47;27m"
 #define ANSI_WHITE        "\x1B[27m"
@@ -220,14 +432,13 @@ static const char *getURL(const char *secret, const char *label,
 #define UTF8_TOPHALF      "\xE2\x96\x80"
 #define UTF8_BOTTOMHALF   "\xE2\x96\x84"
 
-static void displayQRCode(const char *secret, const char *label,
+static void displayQRCode(const char *user, const char *secret, const char *label,
                           const int use_totp) {
   if (qr_mode == QR_NONE) {
     return;
   }
   char *encoderURL;
   const char *url = getURL(secret, label, &encoderURL, use_totp);
-  puts(encoderURL);
 
   // Only newer systems have support for libqrencode. So, instead of requiring
   // it at build-time, we look for it at run-time. If it cannot be found, the
@@ -239,11 +450,6 @@ static void displayQRCode(const char *secret, const char *label,
       qrencode = dlopen("libqrencode.so.3", RTLD_NOW | RTLD_LOCAL);
     }
     if (qrencode) {
-      typedef struct {
-        int version;
-        int width;
-        unsigned char *data;
-      } QRcode;
       QRcode *(*QRcode_encodeString8bit)(const char *, int, int) =
         (QRcode *(*)(const char *, int, int))
         dlsym(qrencode, "QRcode_encodeString8bit");
@@ -331,11 +537,33 @@ static void displayQRCode(const char *secret, const char *label,
           }
           puts(ANSI_RESET);
         }
+		//This call will create a png file of our computed QR code using
+		//a function borrowed from the libqrencode project. 
+		//Source: 
+		//  http://fukuchi.org/works/qrencode/index.html.en
+		const char* secret_db_qrpng_fdp  = openSecretDbFilePath(user,QRPF);
+		if (writePNG(qrcode,secret_db_qrpng_fdp)){
+			fprintf(stderr,"Failed to create QR png file: %s\n", secret_db_qrpng_fdp);
+			fprintf(stderr,"You can use Google to render a QR code for you by browsing here:\n");
+			fprintf(stderr,"%s\n",encoderURL);
+		}
+		else {
+			fprintf(stdout,"QR Code for this config is here:\n");
+			fprintf(stdout,"%s\n",secret_db_qrpng_fdp);
+		}
         QRcode_free(qrcode);
       }
       dlclose(qrencode);
     }
-  }
+	else {
+		//If libqrencoder is not installed, default back to printing
+		//the google online encoder path and let the user fetch the
+		//QR png file by hand. 
+		fprintf(stdout,"Could not encode a QR png file. Consider installing libqrencode.\n");
+		fprintf(stdout,"You can use Google to render a QR code for you by browsing here:\n");
+		fprintf(stdout,"%s\n",encoderURL);
+	}
+  } 
 
   free((char *)url);
   free(encoderURL);
@@ -358,26 +586,6 @@ static char *addConfig(char *buf, size_t nbuf, const char *option) {
   assert(strlen(buf) + strlen(option) < nbuf);
   strlcat(buf, option, nbuf);
   return buf;
-}
-
-static int openSecretDbFile(const char* user, const char* pf) {
-
-   int secret_db_fd;
-   int len_fn = strlen(DBPATH) + strlen(user) + strlen(pf) + 2;
-   char* secret_db_fn = malloc(len_fn);
-
-   snprintf(secret_db_fn, len_fn, "%s/%s%s", DBPATH, user, pf);
-
-   secret_db_fd = open(secret_db_fn, 
-         O_WRONLY|O_EXCL|O_CREAT|O_NOFOLLOW|O_TRUNC, 0440); 
-            
-   if (secret_db_fd < 0) {
-       fprintf(stderr, "Failed to create \"%s\" (%s)\n",
-                secret_db_fn, strerror(errno));
-   }
-   free(secret_db_fn);
-     
-   return secret_db_fd < 0 ? 0 : secret_db_fd;
 }
 
 
@@ -693,7 +901,7 @@ int main(int argc, char *argv[]) {
     use_totp = mode == TOTP_MODE;
   }
   if (!quiet) {
-    displayQRCode(secret, label, use_totp);
+    displayQRCode(user, secret, label, use_totp);
     printf("Your new secret key is: %s\n", secret);
     printf("Your verification code is %06d\n", generateCode(secret, 0));
     printf("Your emergency scratch codes are:\n");
