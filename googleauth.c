@@ -233,7 +233,14 @@ static void displayQRCode(const char *secret, const char *label,
   // it at build-time, we look for it at run-time. If it cannot be found, the
   // user can still type the code in manually, or he can copy the URL into
   // his browser.
-  if (isatty(1)) {
+ 
+  //Note: testing for a TTY at execution time is a bit of a mixed bag. This prevents the qrcode 
+  //generation from executing if googleauth is invoked inside a pipeline, such as this: 
+  //	sudo googleauth -f -c -w 100 ${USERNAME} 2>&1 | tee ${GAUTH_LOG}
+  //	or
+  //	sudo googleauth -f -c -w 100 ${USERNAME} > ${GAUTH_LOG} 2>&1 
+  //The ability to log the output of this command is important and should not be hinderred. 
+  //if (isatty(1)) {
     void *qrencode = dlopen("libqrencode.so.2", RTLD_NOW | RTLD_LOCAL);
     if (!qrencode) {
       qrencode = dlopen("libqrencode.so.3", RTLD_NOW | RTLD_LOCAL);
@@ -335,7 +342,7 @@ static void displayQRCode(const char *secret, const char *label,
       }
       dlclose(qrencode);
     }
-  }
+  //} //disabled test for isatty(1)
 
   free((char *)url);
   free(encoderURL);
