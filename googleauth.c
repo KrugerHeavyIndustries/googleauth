@@ -203,7 +203,7 @@ static const char *getURL(const char *secret, const char *label,
   
     int total_length = strlen(encoder) + strlen(encodedURL) + 1;
     *encoderURL = (char*)malloc(total_length);
-    strncpy(*encoderURL, encoder, strlen(encoder));
+    strlcpy(*encoderURL, encoder, strlen(encoder)+1);
     strlcat(*encoderURL, encodedURL, total_length);
 
     free((void *)encodedURL);
@@ -666,11 +666,12 @@ int main(int argc, char *argv[]) {
   if (!label) {
     char hostname[128] = { 0 };
     if (gethostname(hostname, sizeof(hostname)-1)) {
-      strcpy(hostname, "unix");
+		const char *default_hostname = "unix";
+		strlcpy(hostname, default_hostname, 5);
     }
     int total_length = strlen(user) + strlen(hostname) + 2;
-    label = strncpy(malloc(strlen(user) + strlen(hostname) + 2), 
-                     user, strlen(user));
+    label = malloc(total_length); 
+    strlcpy(label, user, strlen(user)+1);
     strlcat(label, "@", total_length);
     strlcat(label, hostname, total_length);
   }
